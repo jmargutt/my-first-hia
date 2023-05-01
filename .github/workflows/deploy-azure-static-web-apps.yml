@@ -1,0 +1,105 @@
+# See: https://docs.github.com/en/actions/reference/workflow-syntax-for-github-actions
+
+name: 'Deploy to Azure'
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - '!.github/**'
+      - '.github/workflows/deploy-example.yml'
+      - '*'
+      - '!*.md'
+
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+    branches:
+      - main
+    paths:
+      - '!.github/**'
+      - '.github/workflows/deploy-example.yml'
+      - '*'
+      - '!*.md'
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  build_and_deploy_job:
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.action != 'closed')
+    runs-on: ubuntu-latest
+    name: Build and Deploy Job
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          submodules: true
+
+      - name: Set up Node.js version
+        uses: actions/setup-node@v3
+        with:
+          node-version-file: 'helpful-information/.node-version'
+          cache-dependency-path: 'helpful-information/package-lock.json'
+          cache: 'npm'
+
+      - name: Install
+        working-directory: 'helpful-information'
+        run: 'npm ci --omit=optional --no-fund --no-audit'
+        env:
+          HUSKY: 0
+
+      - name: Build
+        working-directory: 'helpful-information'
+        run: 'npm run build:production'
+        env:
+          NG_PRODUCTION: 'true'
+          ENV_NAME: 'HIA-Demo'
+          NG_USE_SERVICE_WORKER: 'true'
+          NG_USE_Q_AND_AS: 'true'
+          NG_USE_Q_AND_A_SEARCH: 'true'
+          TXT_APP_NAME: 'HIA Demo'
+          TXT_APP_LOGO_URL: "data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 243 150'%3e%3cpath fill='%23f5333f' d='M57 89H23V60h34V26h29v34h34v29H86v34H57V89zm108-15a41 41 0 0 1 56-39 49 49 0 1 0 0 77 41 41 0 0 1-56-38'/%3e%3c/svg%3e"
+          TXT_MAIN_PAGE_HEADER: 'This demo shows how you can provide Helpful Information.'
+          TXT_MAIN_PAGE_INTRO: 'Please choose a location to view the helpful information.'
+          TXT_ERROR_HEADER: 'Data Unavailable'
+          TXT_ERROR_MESSAGE: 'Reach out to us at: '
+          TXT_ERROR_CONTACT_URL: 'https://github.com/rodekruis/helpful-information'
+          TXT_ERROR_RETRY: 'Try again?'
+          REGIONS: >-
+            test
+          REGIONS_LABELS: >-
+            Test / Example
+          REGIONS_SHEET_IDS: >-
+            10SIJdAQSd6loqCyzwK409QS_01Fgp8P4aqoDO8iBvhY
+          GOOGLE_SHEETS_API_KEY: ${{ secrets.GOOGLE_SHEETS_API_KEY }}
+          GOOGLE_SHEETS_API_URL: 'https://sheets.googleapis.com/v4/spreadsheets'
+
+      - name: Add robots.txt
+        run: 'cp src/robots.private.txt www/robots.txt'
+
+      - name: Deploy to Azure
+        uses: Azure/static-web-apps-deploy@v1
+        # More information on Static Web App workflow configurations: https://aka.ms/swaworkflowconfig
+        with:
+          skip_deploy_on_missing_secrets: true
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          action: 'upload'
+          config_file_location: '/'
+          app_location: 'helpful-information/www'
+          output_location: ''
+          skip_app_build: true
+          skip_api_build: true
+
+  close_pull_request_job:
+    if: github.event_name == 'pull_request' && github.event.action == 'closed'
+    runs-on: ubuntu-latest
+    name: Close Pull Request Job
+    steps:
+      - uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          action: 'close'
